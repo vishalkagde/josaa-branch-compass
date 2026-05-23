@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JoSAA IIT Branch Finder</title>
+    <link rel="stylesheet" href="styles.css?v=20260518d" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="top-band">
+        <div class="title-block">
+          <p class="eyebrow">JoSAA 2025 IIT branch finder</p>
+          <h1>Find branches in striking distance</h1>
+          <p class="subhead">
+            Enter a rank and see IIT programs from official JoSAA opening/closing ranks,
+            ordered by NIRF Engineering ranking.
+          </p>
+        </div>
+
+        <form id="filters" class="filter-panel">
+          <label>
+            <span>Your rank</span>
+            <input id="rankInput" type="number" min="1" step="1" value="8000" inputmode="numeric" />
+          </label>
+
+          <label>
+            <span>Year</span>
+            <select id="yearInput" disabled>
+              <option value="2025">2025</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Institute type</span>
+            <select id="instituteTypeInput" disabled>
+              <option value="IIT">Indian Institute of Technology</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Round</span>
+            <select id="roundInput"></select>
+          </label>
+
+          <label>
+            <span>Seat category</span>
+            <select id="seatTypeInput"></select>
+          </label>
+
+          <label>
+            <span>Gender pool</span>
+            <select id="genderInput"></select>
+          </label>
+
+          <label>
+            <span>Rank window</span>
+            <input id="windowInput" type="number" min="0" step="100" value="2000" inputmode="numeric" />
+          </label>
+
+          <label class="wide-field">
+            <span>Branch search</span>
+            <input id="searchInput" type="search" placeholder="Computer Science, Mechanical, Design..." />
+          </label>
+        </form>
+      </section>
+
+      <section class="summary-strip" aria-live="polite">
+        <div class="summary-copy">
+          <strong id="matchCount">Loading data...</strong>
+          <span id="summaryText">Official JoSAA data is being prepared.</span>
+          <div id="statusMeaning" class="status-meaning"></div>
+        </div>
+        <div class="status-card-bar">
+          <div id="statusCards" class="status-cards" aria-label="Active status filters"></div>
+          <div class="status-add-wrap">
+            <button id="statusAddButton" class="status-add-button" type="button" aria-expanded="false" aria-controls="statusAddMenu">+</button>
+            <div id="statusAddMenu" class="status-add-menu" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="results" class="results"></section>
+
+      <footer class="source-note">
+        <strong>Source and caution:</strong>
+        Results are based on official JoSAA 2025 opening/closing ranks and NIRF Engineering 2025 ordering.
+        Closing ranks change every year, so use this as planning guidance and verify final choices on official JoSAA sources.
+      </footer>
+    </main>
+
+    <template id="instituteTemplate">
+      <article class="institute-block">
+        <header class="institute-header">
+          <div>
+            <p class="rank-label"></p>
+            <h2></h2>
+            <p class="location"></p>
+          </div>
+          <span class="program-count"></span>
+        </header>
+        <div class="program-table-wrap">
+          <table class="program-table">
+            <thead>
+              <tr>
+                <th>Program</th>
+                <th>Gender</th>
+                <th>Opening</th>
+                <th>Closing</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+    </template>
+
+    <script src="data/processed/cutoffs-2025.js?v=20260518d"></script>
+    <script src="data/processed/institutes-2025.js?v=20260518d"></script>
+    <script src="src/app.js?v=20260518d"></script>
+  </body>
+</html>
