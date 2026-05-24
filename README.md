@@ -54,6 +54,12 @@ Root directory: (leave blank)
 
 4. Deploy.
 
+Important:
+
+- Do not set the build command to `npx wrangler deploy`.
+- This project is a `Pages` static site, not a Worker app.
+- If Cloudflare tries to run `wrangler deploy`, it will look for a Worker entrypoint like `main = "src/index.ts"` and fail.
+
 ### Option 2: Wrangler CLI
 
 If you want to deploy from your machine:
@@ -88,6 +94,35 @@ The repo includes a [_headers](/Users/vishalkagde/Documents/Aahana_JEE/Josaa bra
 - versioned CSS/JS/data assets are cacheable for a long time
 
 This keeps reloads fast while letting new deployments go live cleanly.
+
+## If You See `main = "src/index.ts"` Errors
+
+That error means Cloudflare is trying to deploy this repo as a `Worker`, not a `Pages` project.
+
+Use one of these fixes:
+
+1. For Cloudflare Pages:
+
+```text
+Framework preset: None
+Build command: (leave blank)
+Build output directory: .
+Root directory: (leave blank)
+```
+
+2. For CLI Pages deploy:
+
+```bash
+npx wrangler pages deploy .
+```
+
+3. If you intentionally want a static Worker deploy instead of Pages:
+
+```bash
+npx wrangler deploy -c wrangler.worker.toml
+```
+
+The repo includes [wrangler.worker.toml](/Users/vishalkagde/Documents/Aahana_JEE/Josaa branch predictor/wrangler.worker.toml) for that fallback path.
 
 ## Notes
 
