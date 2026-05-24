@@ -13,6 +13,7 @@ const instituteTypes = {
 
 const state = {
   datasetCache: new Map(),
+  shardCache: new Map(),
   cutoffs: [],
   institutes: new Map(),
   filters: null,
@@ -20,6 +21,7 @@ const state = {
   activeStatuses: ["aspirational", "in-range", "safe"],
   currentType: "iit",
   loadRequestId: 0,
+  renderRequestId: 0,
 };
 
 const controls = {
@@ -48,7 +50,7 @@ const nodes = {
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
-const assetVersion = "20260524f";
+const assetVersion = "20260524g";
 const loadedScriptUrls = new Set();
 
 function getStatusMeta(status) {
@@ -102,6 +104,10 @@ function scriptUrl(path) {
   return `${path}?v=${assetVersion}`;
 }
 
+function shardCacheKey(typeKey, round, seatType) {
+  return `${typeKey}|${round}|${seatType}`;
+}
+
 function loadScript(src) {
   if (loadedScriptUrls.has(src)) {
     return Promise.resolve();
@@ -125,30 +131,55 @@ async function ensureDatasetLoaded(typeKey) {
   }
 
   const upper = typeKey.toUpperCase();
-  const cutoffGlobal = `__JOSAA_CUTOFFS_2025_${upper}__`;
+  const manifestGlobal = `__JOSAA_MANIFEST_2025_${upper}__`;
   const instituteGlobal = `__JOSAA_INSTITUTES_2025_${upper}__`;
 
-  if (!window[cutoffGlobal] || !window[instituteGlobal]) {
+  if (!window[manifestGlobal] || !window[instituteGlobal]) {
     await Promise.all([
-      loadScript(scriptUrl(`data/processed/cutoffs-2025-${typeKey}.js`)),
+      loadScript(scriptUrl(`data/processed/manifest-2025-${typeKey}.js`)),
       loadScript(scriptUrl(`data/processed/institutes-2025-${typeKey}.js`)),
     ]);
   }
 
-  const cutoffPayload = window[cutoffGlobal];
+  const manifestPayload = window[manifestGlobal];
   const institutePayload = window[instituteGlobal];
-  if (!cutoffPayload || !institutePayload) {
-    throw new Error(`Processed ${typeKey.toUpperCase()} data files are missing.`);
+  if (!manifestPayload || !institutePayload) {
+    throw new Error(`Processed ${typeKey.toUpperCase()} metadata files are missing.`);
   }
 
   const dataset = {
-    cutoffs: cutoffPayload.cutoffs,
-    filters: cutoffPayload.filters,
-    metadata: cutoffPayload.metadata,
+    manifest: manifestPayload,
+    filters: manifestPayload.filters,
+    metadata: manifestPayload.metadata,
     institutes: institutePayload.institutes,
   };
   state.datasetCache.set(typeKey, dataset);
   return dataset;
+}
+
+async function ensureShardLoaded(typeKey, round, seatType) {
+  const dataset = state.datasetCache.get(typeKey) || (await ensureDatasetLoaded(typeKey));
+  const shardInfo = dataset.manifest.shards?.[String(round)]?.[seatType];
+  if (!shardInfo) {
+    throw new Error(`No processed shard found for ${typeKey.toUpperCase()} Round ${round} and seat category ${seatType}.`);
+  }
+
+  const cacheKey = shardCacheKey(typeKey, round, seatType);
+  if (state.shardCache.has(cacheKey)) {
+    return state.shardCache.get(cacheKey);
+  }
+
+  if (!window[shardInfo.variable_name]) {
+    await loadScript(scriptUrl(shardInfo.js_path));
+  }
+
+  const shardPayload = window[shardInfo.variable_name];
+  if (!shardPayload) {
+    throw new Error(`Unable to read the ${typeKey.toUpperCase()} Round ${round} ${seatType} shard.`);
+  }
+
+  state.shardCache.set(cacheKey, shardPayload.cutoffs);
+  return shardPayload.cutoffs;
 }
 
 function availableHomeStates() {
@@ -181,9 +212,7 @@ function syncHomeStateControl(previousSelections = {}) {
 }
 
 function populateControls(previousSelections = {}) {
-  const defaultRound = state.filters?.rounds?.includes(state.metadata?.default_round)
-    ? state.metadata.default_round
-    : 1;
+  const defaultRound = state.filters?.rounds?.includes(state.metadata?.default_round) ? state.metadata.default_round : 1;
   const previousRound = Number(previousSelections.round || controls.round.value);
   const previousSeatType = previousSelections.seatType || controls.seatType.value;
   const previousGender = previousSelections.gender || controls.gender.value;
@@ -335,12 +364,26 @@ function renderLoading(typeKey) {
   nodes.results.innerHTML = `
     <div class="empty-state">
       <strong>Loading ${typeMeta.shortLabel} branches</strong>
-      <p>Fetching the processed ${typeMeta.label} dataset for this view.</p>
+      <p>Fetching the processed ${typeMeta.label} metadata for this view.</p>
     </div>
   `;
 }
 
-function render() {
+function renderShardLoading(filters) {
+  const typeMeta = instituteTypes[state.currentType];
+  nodes.matchCount.textContent = `Loading ${typeMeta.shortLabel} programs...`;
+  nodes.summaryText.textContent = `${typeMeta.shortLabel}, Round ${filters.round}, ${filters.seatType}.`;
+  nodes.statusMeaning.replaceChildren();
+  nodes.results.innerHTML = `
+    <div class="empty-state">
+      <strong>Loading filtered data</strong>
+      <p>Fetching JoSAA 2025 ${typeMeta.shortLabel} Round ${filters.round} ${filters.seatType} cutoffs.</p>
+    </div>
+  `;
+}
+
+async function requestRender() {
+  const requestId = ++state.renderRequestId;
   renderStatusControls();
   if (!state.filters) {
     renderLoading(state.currentType);
@@ -370,6 +413,30 @@ function render() {
     nodes.summaryText.textContent = "Choose the student's home state to see NIT home-state closing ranks.";
     nodes.statusMeaning.replaceChildren();
     renderEmpty("Home state needed", "Select the student's state when using the HS quota for NITs.");
+    return;
+  }
+
+  const cacheKey = shardCacheKey(state.currentType, filters.round, filters.seatType);
+  if (!state.shardCache.has(cacheKey)) {
+    renderShardLoading(filters);
+  }
+
+  try {
+    state.cutoffs = await ensureShardLoaded(state.currentType, filters.round, filters.seatType);
+  } catch (error) {
+    if (requestId !== state.renderRequestId) return;
+
+    nodes.matchCount.textContent = `Unable to load ${typeMeta.shortLabel} data`;
+    nodes.summaryText.textContent = error.message;
+    nodes.statusMeaning.replaceChildren();
+    renderEmpty(
+      "Shard missing",
+      `Run python3 scripts/fetch_josaa_2025_iit.py --types iit,nit to generate the processed ${typeMeta.shortLabel} shards.`,
+    );
+    return;
+  }
+
+  if (requestId !== state.renderRequestId) {
     return;
   }
 
@@ -450,12 +517,11 @@ async function activateInstituteType(typeKey, previousSelections = {}) {
       return;
     }
 
-    state.cutoffs = dataset.cutoffs;
     state.filters = dataset.filters;
     state.metadata = dataset.metadata;
     state.institutes = new Map(dataset.institutes.map((institute) => [institute.id, institute]));
     populateControls(previousSelections);
-    render();
+    await requestRender();
   } catch (error) {
     if (requestId !== state.loadRequestId) {
       return;
@@ -471,9 +537,9 @@ async function activateInstituteType(typeKey, previousSelections = {}) {
   }
 }
 
-for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.nitQuota, controls.homeState, controls.window, controls.search]) {
-  control.addEventListener("input", render);
-  control.addEventListener("change", render);
+for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.homeState, controls.window, controls.search]) {
+  control.addEventListener("input", requestRender);
+  control.addEventListener("change", requestRender);
 }
 
 controls.instituteType.addEventListener("change", async () => {
@@ -489,7 +555,7 @@ controls.instituteType.addEventListener("change", async () => {
 
 controls.nitQuota.addEventListener("change", () => {
   syncHomeStateControl({ nitQuota: controls.nitQuota.value, homeState: controls.homeState.value });
-  render();
+  requestRender();
 });
 
 nodes.statusCards.addEventListener("click", (event) => {
@@ -497,7 +563,7 @@ nodes.statusCards.addEventListener("click", (event) => {
   if (!target) return;
   const status = target.dataset.removeStatus;
   state.activeStatuses = state.activeStatuses.filter((value) => value !== status);
-  render();
+  requestRender();
 });
 
 nodes.statusAddButton.addEventListener("click", () => {
@@ -517,7 +583,7 @@ nodes.statusAddMenu.addEventListener("click", (event) => {
   }
   nodes.statusAddMenu.hidden = true;
   nodes.statusAddButton.setAttribute("aria-expanded", "false");
-  render();
+  requestRender();
 });
 
 document.addEventListener("click", (event) => {

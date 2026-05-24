@@ -95,6 +95,15 @@ def slugify(value: str) -> str:
     return value.strip("-")
 
 
+def seat_type_slug(seat_type: str) -> str:
+    return slugify(
+        seat_type.replace("(PwD)", " PwD ")
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace("/", " ")
+    )
+
+
 def canonical_institute_name(name: str) -> str:
     name = clean_text(name)
     replacements = {
@@ -464,6 +473,58 @@ def process_institute_type(
 
     institutes = build_institutes(list(all_institute_options.values()), nirf, institute_type_key)
     institute_payload = {"metadata": {"year": year, "institute_type": config["label"]}, "institutes": institutes}
+    seat_types = sorted(set(row["seat_type"] for row in all_rows))
+    seat_type_slugs = {seat_type: seat_type_slug(seat_type) for seat_type in seat_types}
+    shards: dict[str, dict[str, Any]] = {}
+
+    for round_no in rounds:
+        round_rows = [row for row in all_rows if row["round"] == round_no]
+        round_shards: dict[str, Any] = {}
+        for seat_type in seat_types:
+            shard_rows = [row for row in round_rows if row["seat_type"] == seat_type]
+            shard_slug = seat_type_slugs[seat_type]
+            variable_name = f"__JOSAA_SHARD_{year}_{institute_type_key.upper()}_R{round_no}_{shard_slug.upper().replace('-', '_')}__"
+            js_path = Path("data") / "processed" / "shards" / str(year) / institute_type_key / f"round-{round_no}" / f"{shard_slug}.js"
+            round_shards[seat_type] = {
+                "rows": len(shard_rows),
+                "js_path": str(js_path).replace("\\", "/"),
+                "variable_name": variable_name,
+            }
+            write_js_assignment(
+                root / js_path,
+                variable_name,
+                {
+                    "metadata": {
+                        "year": year,
+                        "institute_type": config["label"],
+                        "institute_type_key": institute_type_key,
+                        "round": round_no,
+                        "seat_type": seat_type,
+                        "rows": len(shard_rows),
+                    },
+                    "cutoffs": shard_rows,
+                },
+            )
+        shards[str(round_no)] = round_shards
+
+    manifest_payload = {
+        "metadata": {
+            "year": year,
+            "institute_type": config["label"],
+            "institute_type_key": institute_type_key,
+            "default_round": 1,
+            "source_url": JOSAA_URL,
+            "rows": len(all_rows),
+            "sources": sources,
+        },
+        "filters": {
+            "rounds": rounds,
+            "seat_types": seat_types,
+            "genders": sorted(all_genders),
+        },
+        "seat_type_slugs": seat_type_slugs,
+        "shards": shards,
+    }
     cutoff_payload = {
         "metadata": {
             "year": year,
@@ -476,14 +537,20 @@ def process_institute_type(
         },
         "filters": {
             "rounds": rounds,
-            "seat_types": sorted(set(row["seat_type"] for row in all_rows)),
+            "seat_types": seat_types,
             "genders": sorted(all_genders),
         },
         "cutoffs": all_rows,
     }
 
+    write_json(processed_dir / f"manifest-{year}-{institute_type_key}.json", manifest_payload)
     write_json(processed_dir / f"cutoffs-{year}-{institute_type_key}.json", cutoff_payload)
     write_json(processed_dir / f"institutes-{year}-{institute_type_key}.json", institute_payload)
+    write_js_assignment(
+        processed_dir / f"manifest-{year}-{institute_type_key}.js",
+        f"__JOSAA_MANIFEST_{year}_{institute_type_key.upper()}__",
+        manifest_payload,
+    )
     write_js_assignment(
         processed_dir / f"cutoffs-{year}-{institute_type_key}.js",
         f"__JOSAA_CUTOFFS_{year}_{institute_type_key.upper()}__",
@@ -496,8 +563,10 @@ def process_institute_type(
     )
 
     if config["legacy_alias"]:
+        write_json(processed_dir / f"manifest-{year}.json", manifest_payload)
         write_json(processed_dir / f"cutoffs-{year}.json", cutoff_payload)
         write_json(processed_dir / f"institutes-{year}.json", institute_payload)
+        write_js_assignment(processed_dir / f"manifest-{year}.js", f"__JOSAA_MANIFEST_{year}__", manifest_payload)
         write_js_assignment(processed_dir / f"cutoffs-{year}.js", f"__JOSAA_CUTOFFS_{year}__", cutoff_payload)
         write_js_assignment(processed_dir / f"institutes-{year}.js", f"__JOSAA_INSTITUTES_{year}__", institute_payload)
 

@@ -17,6 +17,10 @@ python3 scripts/fetch_josaa_2025_iit.py --types iit,nit
 
 The script writes:
 
+- `data/processed/manifest-2025-iit.json`
+- `data/processed/manifest-2025-iit.js`
+- `data/processed/manifest-2025-nit.json`
+- `data/processed/manifest-2025-nit.js`
 - `data/raw/josaa-2025/iit-round-*.html`
 - `data/raw/josaa-2025/nit-round-*.html`
 - `data/processed/cutoffs-2025-iit.json`
@@ -27,6 +31,7 @@ The script writes:
 - `data/processed/institutes-2025-nit.json`
 - `data/processed/cutoffs-2025-nit.js`
 - `data/processed/institutes-2025-nit.js`
+- `data/processed/shards/2025/<type>/round-<n>/<seat-category>.js`
 
 Legacy IIT aliases are also written to:
 
@@ -34,6 +39,18 @@ Legacy IIT aliases are also written to:
 - `data/processed/institutes-2025.json`
 - `data/processed/cutoffs-2025.js`
 - `data/processed/institutes-2025.js`
+
+## Data Loading Model
+
+The frontend no longer loads the full IIT or NIT cutoff dataset on startup.
+
+Instead it uses:
+
+- a small type-level manifest with rounds, seat categories, and shard paths
+- a small institute metadata file with NIRF ordering and state
+- one shard at a time for the selected `year + institute type + round + seat category`
+
+This keeps category expansion cheap because all JoSAA seat categories already exist in the dataset, but the browser only loads the current selection instead of the full cutoff table.
 
 ## Run Locally
 
