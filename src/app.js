@@ -26,6 +26,8 @@ const controls = {
   rank: document.querySelector("#rankInput"),
   year: document.querySelector("#yearInput"),
   instituteType: document.querySelector("#instituteTypeInput"),
+  nitQuota: document.querySelector("#nitQuotaInput"),
+  homeState: document.querySelector("#homeStateInput"),
   round: document.querySelector("#roundInput"),
   seatType: document.querySelector("#seatTypeInput"),
   gender: document.querySelector("#genderInput"),
@@ -46,7 +48,7 @@ const nodes = {
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
-const assetVersion = "20260524c";
+const assetVersion = "20260524f";
 const loadedScriptUrls = new Set();
 
 function getStatusMeta(status) {
@@ -149,6 +151,35 @@ async function ensureDatasetLoaded(typeKey) {
   return dataset;
 }
 
+function availableHomeStates() {
+  return [...new Set([...state.institutes.values()].map((institute) => institute.state).filter(Boolean))].sort();
+}
+
+function syncHomeStateControl(previousSelections = {}) {
+  const field = document.querySelector("#homeStateField");
+  const quotaField = document.querySelector("#nitQuotaField");
+  const isNit = state.currentType === "nit";
+  const selectedQuota = previousSelections.nitQuota || controls.nitQuota.value || "OS";
+
+  quotaField.hidden = !isNit;
+  field.hidden = !isNit || selectedQuota !== "HS";
+
+  if (!isNit) {
+    controls.nitQuota.value = "OS";
+    controls.homeState.replaceChildren(option("", "Select home state", true));
+    controls.homeState.value = "";
+    return;
+  }
+
+  controls.nitQuota.value = selectedQuota;
+  const previousHomeState = previousSelections.homeState || controls.homeState.value || "";
+  const states = availableHomeStates();
+  controls.homeState.replaceChildren(
+    option("", "Select home state", previousHomeState === ""),
+    ...states.map((homeState) => option(homeState, homeState, homeState === previousHomeState)),
+  );
+}
+
 function populateControls(previousSelections = {}) {
   const defaultRound = state.filters?.rounds?.includes(state.metadata?.default_round)
     ? state.metadata.default_round
@@ -179,11 +210,15 @@ function populateControls(previousSelections = {}) {
     option("ALL", "All gender pools", previousGender === "ALL" || !previousGender),
     ...state.filters.genders.map((gender) => option(gender, gender, gender === previousGender)),
   );
+
+  syncHomeStateControl(previousSelections);
 }
 
 function currentFilters() {
   return {
     instituteType: controls.instituteType.value,
+    nitQuota: controls.nitQuota.value || "OS",
+    homeState: controls.homeState.value || "",
     rank: Number(controls.rank.value),
     round: Number(controls.round.value),
     seatType: controls.seatType.value,
@@ -242,6 +277,15 @@ function filterRows(filters) {
   return state.cutoffs
     .filter((row) => row.round === filters.round)
     .filter((row) => row.seat_type === filters.seatType)
+    .filter((row) => {
+      if (state.currentType !== "nit") return true;
+      if (row.quota !== "HS" && row.quota !== "OS") return false;
+      if (filters.nitQuota === "OS") return row.quota === "OS";
+      if (!filters.homeState) return false;
+
+      const institute = state.institutes.get(row.institute_id);
+      return row.quota === "HS" && institute?.state === filters.homeState;
+    })
     .filter((row) => filters.gender === "ALL" || row.gender === filters.gender)
     .filter((row) => row.closing_rank !== null)
     .filter((row) => !filters.search || row.program_name.toLowerCase().includes(filters.search))
@@ -321,15 +365,29 @@ function render() {
     return;
   }
 
+  if (state.currentType === "nit" && filters.nitQuota === "HS" && !filters.homeState) {
+    nodes.matchCount.textContent = "Select a home state";
+    nodes.summaryText.textContent = "Choose the student's home state to see NIT home-state closing ranks.";
+    nodes.statusMeaning.replaceChildren();
+    renderEmpty("Home state needed", "Select the student's state when using the HS quota for NITs.");
+    return;
+  }
+
   const rows = filterRows(filters);
   const groups = groupByInstitute(rows);
   const minimumClosingRank = Math.max(1, filters.rank - filters.window);
   const inRangeUpper = filters.rank + 2999;
   const safeStart = filters.rank + 3000;
   const statusLabels = filters.statuses.map((status) => getStatusMeta(status).label);
+  const nitSummary =
+    state.currentType === "nit"
+      ? filters.nitQuota === "OS"
+        ? ", OS quota"
+        : `, HS quota, ${filters.homeState}`
+      : "";
 
   nodes.matchCount.textContent = `${numberFormat.format(rows.length)} matching programs`;
-  nodes.summaryText.textContent = `${typeMeta.shortLabel}, Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}.`;
+  nodes.summaryText.textContent = `${typeMeta.shortLabel}${nitSummary}, Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}.`;
   nodes.statusMeaning.innerHTML = `
     <div class="status-meaning-card"><strong>Aspirational</strong> = closing rank from ${formatNumber(minimumClosingRank)} to ${formatNumber(filters.rank - 1)}</div>
     <div class="status-meaning-card"><strong>In range</strong> = closing rank from ${formatNumber(filters.rank)} to ${formatNumber(inRangeUpper)}</div>
@@ -382,6 +440,8 @@ function render() {
 async function activateInstituteType(typeKey, previousSelections = {}) {
   const requestId = ++state.loadRequestId;
   state.currentType = typeKey;
+  document.querySelector("#nitQuotaField").hidden = typeKey !== "nit";
+  document.querySelector("#homeStateField").hidden = true;
   renderLoading(typeKey);
 
   try {
@@ -411,18 +471,25 @@ async function activateInstituteType(typeKey, previousSelections = {}) {
   }
 }
 
-for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.window, controls.search]) {
+for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.nitQuota, controls.homeState, controls.window, controls.search]) {
   control.addEventListener("input", render);
   control.addEventListener("change", render);
 }
 
 controls.instituteType.addEventListener("change", async () => {
   const previousSelections = {
+    nitQuota: controls.nitQuota.value,
     round: controls.round.value,
     seatType: controls.seatType.value,
     gender: controls.gender.value,
+    homeState: controls.homeState.value,
   };
   await activateInstituteType(controls.instituteType.value, previousSelections);
+});
+
+controls.nitQuota.addEventListener("change", () => {
+  syncHomeStateControl({ nitQuota: controls.nitQuota.value, homeState: controls.homeState.value });
+  render();
 });
 
 nodes.statusCards.addEventListener("click", (event) => {

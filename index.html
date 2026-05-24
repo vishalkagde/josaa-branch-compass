@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JoSAA Branch Finder</title>
-    <link rel="stylesheet" href="styles.css?v=20260524c" />
+    <link rel="stylesheet" href="styles.css?v=20260524f" />
   </head>
   <body>
     <main class="app-shell">
@@ -37,6 +37,19 @@
               <option value="iit">Indian Institute of Technology</option>
               <option value="nit">National Institute of Technology</option>
             </select>
+          </label>
+
+          <label id="nitQuotaField" hidden>
+            <span>NIT quota</span>
+            <select id="nitQuotaInput">
+              <option value="OS">Other state (OS)</option>
+              <option value="HS">Home state (HS)</option>
+            </select>
+          </label>
+
+          <label id="homeStateField" hidden>
+            <span>Student home state</span>
+            <select id="homeStateInput"></select>
           </label>
 
           <label>
@@ -130,6 +143,6 @@
       </article>
     </template>
 
-    <script src="src/app.js?v=20260524c"></script>
+    <script src="src/app.js?v=20260524f"></script>
   </body>
 </html>

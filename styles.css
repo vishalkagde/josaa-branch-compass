@@ -97,6 +97,10 @@ label {
   min-width: 0;
 }
 
+label[hidden] {
+  display: none;
+}
+
 fieldset {
   min-width: 0;
   margin: 0;
