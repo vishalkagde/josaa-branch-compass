@@ -1,8 +1,25 @@
+const instituteTypes = {
+  iit: {
+    key: "iit",
+    label: "Indian Institute of Technology",
+    shortLabel: "IIT",
+  },
+  nit: {
+    key: "nit",
+    label: "National Institute of Technology",
+    shortLabel: "NIT",
+  },
+};
+
 const state = {
+  datasetCache: new Map(),
   cutoffs: [],
   institutes: new Map(),
   filters: null,
+  metadata: null,
   activeStatuses: ["aspirational", "in-range", "safe"],
+  currentType: "iit",
+  loadRequestId: 0,
 };
 
 const controls = {
@@ -29,6 +46,8 @@ const nodes = {
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
+const assetVersion = "20260524c";
+const loadedScriptUrls = new Set();
 
 function getStatusMeta(status) {
   if (status === "aspirational") {
@@ -77,23 +96,94 @@ function option(value, label, selected = false) {
   return element;
 }
 
-function populateControls() {
+function scriptUrl(path) {
+  return `${path}?v=${assetVersion}`;
+}
+
+function loadScript(src) {
+  if (loadedScriptUrls.has(src)) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => {
+      loadedScriptUrls.add(src);
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`Unable to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureDatasetLoaded(typeKey) {
+  if (state.datasetCache.has(typeKey)) {
+    return state.datasetCache.get(typeKey);
+  }
+
+  const upper = typeKey.toUpperCase();
+  const cutoffGlobal = `__JOSAA_CUTOFFS_2025_${upper}__`;
+  const instituteGlobal = `__JOSAA_INSTITUTES_2025_${upper}__`;
+
+  if (!window[cutoffGlobal] || !window[instituteGlobal]) {
+    await Promise.all([
+      loadScript(scriptUrl(`data/processed/cutoffs-2025-${typeKey}.js`)),
+      loadScript(scriptUrl(`data/processed/institutes-2025-${typeKey}.js`)),
+    ]);
+  }
+
+  const cutoffPayload = window[cutoffGlobal];
+  const institutePayload = window[instituteGlobal];
+  if (!cutoffPayload || !institutePayload) {
+    throw new Error(`Processed ${typeKey.toUpperCase()} data files are missing.`);
+  }
+
+  const dataset = {
+    cutoffs: cutoffPayload.cutoffs,
+    filters: cutoffPayload.filters,
+    metadata: cutoffPayload.metadata,
+    institutes: institutePayload.institutes,
+  };
+  state.datasetCache.set(typeKey, dataset);
+  return dataset;
+}
+
+function populateControls(previousSelections = {}) {
+  const defaultRound = state.filters?.rounds?.includes(state.metadata?.default_round)
+    ? state.metadata.default_round
+    : 1;
+  const previousRound = Number(previousSelections.round || controls.round.value);
+  const previousSeatType = previousSelections.seatType || controls.seatType.value;
+  const previousGender = previousSelections.gender || controls.gender.value;
+
+  const selectedRound = state.filters.rounds.includes(previousRound)
+    ? previousRound
+    : state.filters.rounds.includes(defaultRound)
+      ? defaultRound
+      : state.filters.rounds[0];
   controls.round.replaceChildren(
-    ...state.filters.rounds.map((round) => option(String(round), `Round ${round}`, round === 1)),
+    ...state.filters.rounds.map((round) => option(String(round), `Round ${round}`, round === selectedRound)),
   );
 
+  const preferredSeatType = state.filters.seat_types.includes(previousSeatType)
+    ? previousSeatType
+    : state.filters.seat_types.includes("OPEN")
+      ? "OPEN"
+      : state.filters.seat_types[0];
   controls.seatType.replaceChildren(
-    ...state.filters.seat_types.map((seatType) => option(seatType, seatType, seatType === "OPEN")),
+    ...state.filters.seat_types.map((seatType) => option(seatType, seatType, seatType === preferredSeatType)),
   );
 
   controls.gender.replaceChildren(
-    option("ALL", "All gender pools", true),
-    ...state.filters.genders.map((gender) => option(gender, gender)),
+    option("ALL", "All gender pools", previousGender === "ALL" || !previousGender),
+    ...state.filters.genders.map((gender) => option(gender, gender, gender === previousGender)),
   );
 }
 
 function currentFilters() {
   return {
+    instituteType: controls.instituteType.value,
     rank: Number(controls.rank.value),
     round: Number(controls.round.value),
     seatType: controls.seatType.value,
@@ -193,23 +283,33 @@ function renderEmpty(title, message) {
   `;
 }
 
-function getEmbeddedData() {
-  const cutoffPayload = window.__JOSAA_CUTOFFS_2025__;
-  const institutePayload = window.__JOSAA_INSTITUTES_2025__;
-  if (!cutoffPayload || !institutePayload) {
-    return null;
-  }
-  return { cutoffPayload, institutePayload };
+function renderLoading(typeKey) {
+  const typeMeta = instituteTypes[typeKey];
+  nodes.matchCount.textContent = `Loading ${typeMeta.shortLabel} data...`;
+  nodes.summaryText.textContent = `Preparing JoSAA 2025 ${typeMeta.label} cutoffs.`;
+  nodes.statusMeaning.replaceChildren();
+  nodes.results.innerHTML = `
+    <div class="empty-state">
+      <strong>Loading ${typeMeta.shortLabel} branches</strong>
+      <p>Fetching the processed ${typeMeta.label} dataset for this view.</p>
+    </div>
+  `;
 }
 
 function render() {
-  const filters = currentFilters();
   renderStatusControls();
+  if (!state.filters) {
+    renderLoading(state.currentType);
+    return;
+  }
+
+  const filters = currentFilters();
+  const typeMeta = instituteTypes[state.currentType];
   if (!Number.isFinite(filters.rank) || filters.rank <= 0) {
     nodes.matchCount.textContent = "Enter a valid rank";
     nodes.summaryText.textContent = "Rank should be a positive number.";
     nodes.statusMeaning.replaceChildren();
-    renderEmpty("Rank needed", "Enter your child's CRL/category rank to see matching IIT branches.");
+    renderEmpty("Rank needed", `Enter your child's CRL/category rank to see matching ${typeMeta.shortLabel} branches.`);
     return;
   }
 
@@ -229,7 +329,7 @@ function render() {
   const statusLabels = filters.statuses.map((status) => getStatusMeta(status).label);
 
   nodes.matchCount.textContent = `${numberFormat.format(rows.length)} matching programs`;
-  nodes.summaryText.textContent = `Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}.`;
+  nodes.summaryText.textContent = `${typeMeta.shortLabel}, Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}.`;
   nodes.statusMeaning.innerHTML = `
     <div class="status-meaning-card"><strong>Aspirational</strong> = closing rank from ${formatNumber(minimumClosingRank)} to ${formatNumber(filters.rank - 1)}</div>
     <div class="status-meaning-card"><strong>In range</strong> = closing rank from ${formatNumber(filters.rank)} to ${formatNumber(inRangeUpper)}</div>
@@ -239,7 +339,7 @@ function render() {
   if (!rows.length) {
     renderEmpty(
       "No matching branches",
-      "Try a wider rank window, a different round, or include all gender pools.",
+      `Try a wider rank window, a different round, or include all gender pools for ${typeMeta.shortLabel}.`,
     );
     return;
   }
@@ -279,43 +379,51 @@ function render() {
   nodes.results.replaceChildren(fragment);
 }
 
-async function loadData() {
-  let cutoffPayload;
-  let institutePayload;
+async function activateInstituteType(typeKey, previousSelections = {}) {
+  const requestId = ++state.loadRequestId;
+  state.currentType = typeKey;
+  renderLoading(typeKey);
 
   try {
-    const [cutoffsResponse, institutesResponse] = await Promise.all([
-      fetch("data/processed/cutoffs-2025.json"),
-      fetch("data/processed/institutes-2025.json"),
-    ]);
-
-    if (!cutoffsResponse.ok || !institutesResponse.ok) {
-      throw new Error("Unable to load processed data files.");
+    const dataset = await ensureDatasetLoaded(typeKey);
+    if (requestId !== state.loadRequestId) {
+      return;
     }
 
-    cutoffPayload = await cutoffsResponse.json();
-    institutePayload = await institutesResponse.json();
+    state.cutoffs = dataset.cutoffs;
+    state.filters = dataset.filters;
+    state.metadata = dataset.metadata;
+    state.institutes = new Map(dataset.institutes.map((institute) => [institute.id, institute]));
+    populateControls(previousSelections);
+    render();
   } catch (error) {
-    const embedded = getEmbeddedData();
-    if (!embedded) {
-      throw error;
+    if (requestId !== state.loadRequestId) {
+      return;
     }
-    cutoffPayload = embedded.cutoffPayload;
-    institutePayload = embedded.institutePayload;
+
+    nodes.matchCount.textContent = `Unable to load ${instituteTypes[typeKey].shortLabel} data`;
+    nodes.summaryText.textContent = error.message;
+    nodes.statusMeaning.replaceChildren();
+    renderEmpty(
+      "Dataset missing",
+      `Run python3 scripts/fetch_josaa_2025_iit.py --types iit,nit to generate the processed ${instituteTypes[typeKey].shortLabel} files.`,
+    );
   }
-
-  state.cutoffs = cutoffPayload.cutoffs;
-  state.filters = cutoffPayload.filters;
-  state.institutes = new Map(institutePayload.institutes.map((institute) => [institute.id, institute]));
-
-  populateControls();
-  render();
 }
 
-for (const control of Object.values(controls)) {
+for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.window, controls.search]) {
   control.addEventListener("input", render);
   control.addEventListener("change", render);
 }
+
+controls.instituteType.addEventListener("change", async () => {
+  const previousSelections = {
+    round: controls.round.value,
+    seatType: controls.seatType.value,
+    gender: controls.gender.value,
+  };
+  await activateInstituteType(controls.instituteType.value, previousSelections);
+});
 
 nodes.statusCards.addEventListener("click", (event) => {
   const target = event.target.closest("[data-remove-status]");
@@ -356,8 +464,4 @@ document.addEventListener("click", (event) => {
   }
 });
 
-loadData().catch((error) => {
-  nodes.matchCount.textContent = "Data not ready";
-  nodes.summaryText.textContent = error.message;
-  renderEmpty("Processed data missing", "Run scripts/fetch_josaa_2025_iit.py to generate the local JoSAA dataset.");
-});
+activateInstituteType(state.currentType);

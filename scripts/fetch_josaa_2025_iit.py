@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Fetch and normalize JoSAA 2025 IIT opening/closing ranks.
+"""Fetch and normalize JoSAA 2025 opening/closing ranks by institute type.
 
 The official site is an ASP.NET WebForms page. This script follows the same
 postback sequence as the UI:
 
 round -> institute type -> institute ALL -> branch ALL -> seat type ALL -> submit
+
+It keeps separate processed datasets for each institute type so the frontend can
+switch between IIT and NIT data without mixing them together.
 """
 
 from __future__ import annotations
@@ -37,6 +40,21 @@ FIELD_BRANCH = "ctl00$ContentPlaceHolder1$ddlBranch"
 FIELD_SEAT_TYPE = "ctl00$ContentPlaceHolder1$ddlSeattype"
 FIELD_SUBMIT = "ctl00$ContentPlaceHolder1$btnSubmit"
 FIELD_SECURITY = "ctl00$hdnSecKey"
+
+INSTITUTE_TYPES = {
+    "iit": {
+        "josaa_value": "IIT",
+        "label": "Indian Institute of Technology",
+        "short_label": "IIT",
+        "legacy_alias": True,
+    },
+    "nit": {
+        "josaa_value": "NIT",
+        "label": "National Institute of Technology",
+        "short_label": "NIT",
+        "legacy_alias": False,
+    },
+}
 
 HEADERS = {
     "User-Agent": (
@@ -79,23 +97,40 @@ def slugify(value: str) -> str:
 
 def canonical_institute_name(name: str) -> str:
     name = clean_text(name)
-    name = name.replace("Indian Institute of Technology, ", "Indian Institute of Technology ")
+    replacements = {
+        "Indian Institute of Technology, ": "Indian Institute of Technology ",
+        "National Institute of Technology, ": "National Institute of Technology ",
+    }
+    for source, target in replacements.items():
+        name = name.replace(source, target)
+
     aliases = {
         "Indian Institute of Technology (ISM) Dhanbad": "Indian Institute of Technology (Indian School of Mines) Dhanbad",
         "Indian Institute of Technology (BHU) Varanasi": "Indian Institute of Technology (Banaras Hindu University) Varanasi",
+        "Malaviya National Institute of Technology Jaipur": "Malaviya National Institute of Technology",
+        "Maulana Azad National Institute of Technology Bhopal": "Maulana Azad National Institute of Technology",
+        "Motilal Nehru National Institute of Technology Allahabad": "Motilal Nehru National Institute of Technology",
+        "Sardar Vallabhbhai National Institute of Technology Surat": "Sardar Vallabhbhai National Institute of Technology",
+        "National Institute of Technology Andhra Pradesh": "National Institute Of Technology, Andhra Pradesh",
     }
     return aliases.get(name, name)
 
 
-def institute_id(name: str) -> str:
+def institute_id(name: str, institute_type_key: str) -> str:
     name = canonical_institute_name(name)
-    aliases = {
-        "Indian Institute of Technology (Indian School of Mines) Dhanbad": "iit-ism-dhanbad",
-        "Indian Institute of Technology (Banaras Hindu University) Varanasi": "iit-bhu-varanasi",
-    }
-    if name in aliases:
-        return aliases[name]
-    return slugify(name.replace("Indian Institute of Technology", "IIT"))
+    if institute_type_key == "iit":
+        aliases = {
+            "Indian Institute of Technology (Indian School of Mines) Dhanbad": "iit-ism-dhanbad",
+            "Indian Institute of Technology (Banaras Hindu University) Varanasi": "iit-bhu-varanasi",
+        }
+        if name in aliases:
+            return aliases[name]
+        return slugify(name.replace("Indian Institute of Technology", "IIT"))
+
+    if institute_type_key == "nit":
+        return slugify(name.replace("National Institute of Technology", "NIT"))
+
+    return slugify(name)
 
 
 def parse_rank(raw: str) -> dict[str, Any]:
@@ -161,7 +196,8 @@ def submit(session: requests.Session, state: FormState, values: dict[str, str]) 
     return FormState(response.text)
 
 
-def fetch_round(round_no: int, raw_dir: Path, pause_seconds: float) -> tuple[str, dict[str, Any]]:
+def fetch_round(round_no: int, raw_dir: Path, pause_seconds: float, institute_type_key: str) -> tuple[str, dict[str, Any]]:
+    config = INSTITUTE_TYPES[institute_type_key]
     session = requests.Session()
     session.headers.update(HEADERS)
 
@@ -172,7 +208,7 @@ def fetch_round(round_no: int, raw_dir: Path, pause_seconds: float) -> tuple[str
     selected: dict[str, str] = {FIELD_ROUND: str(round_no)}
     state = postback(session, state, event_target=FIELD_ROUND, values=selected)
 
-    selected[FIELD_INST_TYPE] = "IIT"
+    selected[FIELD_INST_TYPE] = config["josaa_value"]
     state = postback(session, state, event_target=FIELD_INST_TYPE, values=selected)
     institute_options = select_options(state.html, "ctl00_ContentPlaceHolder1_ddlInstitute")
 
@@ -189,7 +225,7 @@ def fetch_round(round_no: int, raw_dir: Path, pause_seconds: float) -> tuple[str
     state = submit(session, state, values=selected)
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = raw_dir / f"iit-round-{round_no}.html"
+    raw_path = raw_dir / f"{institute_type_key}-round-{round_no}.html"
     raw_path.write_text(state.html, encoding="utf-8")
 
     metadata = {
@@ -201,7 +237,8 @@ def fetch_round(round_no: int, raw_dir: Path, pause_seconds: float) -> tuple[str
     return state.html, metadata
 
 
-def parse_cutoff_rows(html: str, year: int, round_no: int) -> list[dict[str, Any]]:
+def parse_cutoff_rows(html: str, year: int, round_no: int, institute_type_key: str) -> list[dict[str, Any]]:
+    config = INSTITUTE_TYPES[institute_type_key]
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", id=re.compile("GridView1$"))
     if table is None:
@@ -221,7 +258,8 @@ def parse_cutoff_rows(html: str, year: int, round_no: int) -> list[dict[str, Any
             {
                 "year": year,
                 "round": round_no,
-                "institute_id": institute_id(institute_name),
+                "institute_type": config["label"],
+                "institute_id": institute_id(institute_name, institute_type_key),
                 "institute_name": clean_text(institute_name),
                 "canonical_institute_name": canonical_name,
                 "program_name": program_name,
@@ -263,8 +301,6 @@ def fetch_nirf() -> dict[str, dict[str, Any]]:
             if len(cells) < 6:
                 continue
             name = first_text_before_child(cells[1]) or clean_text(cells[1].get_text(" ", strip=True)).split("More Details")[0]
-            if "Indian Institute of Technology" not in name:
-                continue
             city = clean_text(cells[2].get_text(" ", strip=True))
             state = clean_text(cells[3].get_text(" ", strip=True))
             score = clean_text(cells[4].get_text(" ", strip=True))
@@ -295,8 +331,6 @@ def fetch_nirf() -> dict[str, dict[str, Any]]:
             if len(cells) < 3:
                 continue
             name = clean_text(cells[0].get_text(" ", strip=True))
-            if "Indian Institute of Technology" not in name:
-                continue
             key = canonical_institute_name(name)
             nirf[key] = {
                 "nirf_name": name,
@@ -308,10 +342,29 @@ def fetch_nirf() -> dict[str, dict[str, Any]]:
                 "nirf_sort_order": band_start,
             }
 
+    nirf.update(
+        {
+            "National Institute Of Technology, Andhra Pradesh": {
+                "nirf_name": "National Institute Of Technology, Andhra Pradesh",
+                "city": "TADEPALLIGUDEM",
+                "state": "Andhra Pradesh",
+                "nirf_score": None,
+                "nirf_engineering_rank": None,
+                "nirf_rank_band": None,
+                "nirf_sort_order": 9999,
+            }
+        }
+    )
+
     return nirf
 
 
-def build_institutes(institute_options: list[dict[str, str]], nirf: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def build_institutes(
+    institute_options: list[dict[str, str]],
+    nirf: dict[str, dict[str, Any]],
+    institute_type_key: str,
+) -> list[dict[str, Any]]:
+    config = INSTITUTE_TYPES[institute_type_key]
     institutes = []
     for option in institute_options:
         josaa_name = clean_text(option["label"])
@@ -319,11 +372,11 @@ def build_institutes(institute_options: list[dict[str, str]], nirf: dict[str, di
         info = nirf.get(canonical_name, {})
         institutes.append(
             {
-                "id": institute_id(josaa_name),
+                "id": institute_id(josaa_name, institute_type_key),
                 "josaa_code": option["value"],
                 "josaa_name": josaa_name,
                 "canonical_name": canonical_name,
-                "institute_type": "Indian Institute of Technology",
+                "institute_type": config["label"],
                 "nirf_name": info.get("nirf_name"),
                 "city": info.get("city"),
                 "state": info.get("state"),
@@ -349,28 +402,28 @@ def write_js_assignment(path: Path, variable_name: str, payload: Any) -> None:
     )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--year", type=int, default=2025)
-    parser.add_argument("--rounds", default="1,2,3,4,5,6", help="Comma-separated round numbers")
-    parser.add_argument("--pause", type=float, default=0.4, help="Pause before large submit request")
-    parser.add_argument("--force", action="store_true", help="Refetch raw HTML even if present")
-    args = parser.parse_args()
-
-    root = Path(__file__).resolve().parents[1]
-    raw_dir = root / "data" / "raw" / f"josaa-{args.year}"
+def process_institute_type(
+    *,
+    root: Path,
+    year: int,
+    rounds: list[int],
+    pause: float,
+    force: bool,
+    institute_type_key: str,
+    nirf: dict[str, dict[str, Any]],
+) -> None:
+    config = INSTITUTE_TYPES[institute_type_key]
+    raw_dir = root / "data" / "raw" / f"josaa-{year}"
     processed_dir = root / "data" / "processed"
-    rounds = [int(value.strip()) for value in args.rounds.split(",") if value.strip()]
 
     all_rows: list[dict[str, Any]] = []
     all_institute_options: dict[str, dict[str, str]] = {}
-    all_seat_types: dict[str, str] = {}
     all_genders: set[str] = set()
     sources: list[dict[str, Any]] = []
 
     for round_no in rounds:
-        raw_path = raw_dir / f"iit-round-{round_no}.html"
-        if raw_path.exists() and not args.force:
+        raw_path = raw_dir / f"{institute_type_key}-round-{round_no}.html"
+        if raw_path.exists() and not force:
             html = raw_path.read_text(encoding="utf-8")
             metadata = {
                 "institutes": [
@@ -391,35 +444,31 @@ def main() -> None:
                 "raw_path": str(raw_path),
             }
         else:
-            print(f"Fetching JoSAA {args.year} IIT Round {round_no}...")
-            html, metadata = fetch_round(round_no, raw_dir, args.pause)
+            print(f"Fetching JoSAA {year} {config['short_label']} Round {round_no}...")
+            html, metadata = fetch_round(round_no, raw_dir, pause, institute_type_key)
 
         for option in metadata["institutes"]:
             all_institute_options[option["value"]] = option
-        for option in metadata["seat_types"]:
-            all_seat_types[option["value"]] = option["label"]
 
-        rows = parse_cutoff_rows(html, args.year, round_no)
+        rows = parse_cutoff_rows(html, year, round_no, institute_type_key)
         for row in rows:
             all_genders.add(row["gender"])
-            all_seat_types.setdefault(row["seat_type"], row["seat_type"])
         all_rows.extend(rows)
         sources.append({"round": round_no, "raw_path": str(raw_path), "rows": len(rows)})
-        print(f"Parsed {len(rows)} rows for round {round_no}.")
+        print(f"Parsed {len(rows)} rows for {config['short_label']} round {round_no}.")
 
     if not all_institute_options:
-        first_html = (raw_dir / f"iit-round-{rounds[0]}.html").read_text(encoding="utf-8")
-        names = sorted({row["institute_name"] for row in parse_cutoff_rows(first_html, args.year, rounds[0])})
+        first_html = (raw_dir / f"{institute_type_key}-round-{rounds[0]}.html").read_text(encoding="utf-8")
+        names = sorted({row["institute_name"] for row in parse_cutoff_rows(first_html, year, rounds[0], institute_type_key)})
         all_institute_options = {str(index + 1): {"value": str(index + 1), "label": name} for index, name in enumerate(names)}
 
-    print("Fetching NIRF Engineering 2025 ranking metadata...")
-    nirf = fetch_nirf()
-    institutes = build_institutes(list(all_institute_options.values()), nirf)
-
+    institutes = build_institutes(list(all_institute_options.values()), nirf, institute_type_key)
+    institute_payload = {"metadata": {"year": year, "institute_type": config["label"]}, "institutes": institutes}
     cutoff_payload = {
         "metadata": {
-            "year": args.year,
-            "institute_type": "Indian Institute of Technology",
+            "year": year,
+            "institute_type": config["label"],
+            "institute_type_key": institute_type_key,
             "default_round": 1,
             "source_url": JOSAA_URL,
             "rows": len(all_rows),
@@ -432,18 +481,69 @@ def main() -> None:
         },
         "cutoffs": all_rows,
     }
-    write_json(processed_dir / f"cutoffs-{args.year}.json", cutoff_payload)
-    write_json(processed_dir / f"institutes-{args.year}.json", {"metadata": {"year": args.year}, "institutes": institutes})
-    write_js_assignment(processed_dir / f"cutoffs-{args.year}.js", "__JOSAA_CUTOFFS_2025__", cutoff_payload)
-    write_js_assignment(processed_dir / f"institutes-{args.year}.js", "__JOSAA_INSTITUTES_2025__", {"metadata": {"year": args.year}, "institutes": institutes})
+
+    write_json(processed_dir / f"cutoffs-{year}-{institute_type_key}.json", cutoff_payload)
+    write_json(processed_dir / f"institutes-{year}-{institute_type_key}.json", institute_payload)
+    write_js_assignment(
+        processed_dir / f"cutoffs-{year}-{institute_type_key}.js",
+        f"__JOSAA_CUTOFFS_{year}_{institute_type_key.upper()}__",
+        cutoff_payload,
+    )
+    write_js_assignment(
+        processed_dir / f"institutes-{year}-{institute_type_key}.js",
+        f"__JOSAA_INSTITUTES_{year}_{institute_type_key.upper()}__",
+        institute_payload,
+    )
+
+    if config["legacy_alias"]:
+        write_json(processed_dir / f"cutoffs-{year}.json", cutoff_payload)
+        write_json(processed_dir / f"institutes-{year}.json", institute_payload)
+        write_js_assignment(processed_dir / f"cutoffs-{year}.js", f"__JOSAA_CUTOFFS_{year}__", cutoff_payload)
+        write_js_assignment(processed_dir / f"institutes-{year}.js", f"__JOSAA_INSTITUTES_{year}__", institute_payload)
 
     missing = [item["canonical_name"] for item in institutes if item["nirf_sort_order"] == 9999]
     if missing:
-        print("Warning: missing NIRF metadata for:")
+        print(f"Warning: missing NIRF metadata for {config['short_label']}:")
         for name in missing:
             print(f"  - {name}")
 
-    print(f"Wrote {len(all_rows)} cutoff rows and {len(institutes)} institutes.")
+    print(f"Wrote {len(all_rows)} cutoff rows and {len(institutes)} {config['short_label']} institutes.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--year", type=int, default=2025)
+    parser.add_argument("--rounds", default="1,2,3,4,5,6", help="Comma-separated round numbers")
+    parser.add_argument("--pause", type=float, default=0.4, help="Pause before large submit request")
+    parser.add_argument("--force", action="store_true", help="Refetch raw HTML even if present")
+    parser.add_argument(
+        "--types",
+        default="iit",
+        help="Comma-separated institute type keys to fetch. Supported values: iit,nit",
+    )
+    args = parser.parse_args()
+
+    root = Path(__file__).resolve().parents[1]
+    rounds = [int(value.strip()) for value in args.rounds.split(",") if value.strip()]
+    requested_types = [value.strip().lower() for value in args.types.split(",") if value.strip()]
+
+    invalid_types = [value for value in requested_types if value not in INSTITUTE_TYPES]
+    if invalid_types:
+        raise SystemExit(f"Unsupported institute types: {', '.join(invalid_types)}")
+
+    print("Fetching NIRF Engineering 2025 ranking metadata...")
+    nirf = fetch_nirf()
+
+    for institute_type_key in requested_types:
+        process_institute_type(
+            root=root,
+            year=args.year,
+            rounds=rounds,
+            pause=args.pause,
+            force=args.force,
+            institute_type_key=institute_type_key,
+            nirf=nirf,
+        )
 
 
 if __name__ == "__main__":

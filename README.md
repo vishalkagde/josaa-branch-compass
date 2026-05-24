@@ -1,23 +1,35 @@
-# JoSAA IIT Branch Finder
+# JoSAA Branch Compass
 
 Parent-friendly branch discovery tool for JoSAA opening/closing ranks.
 
 V1 uses:
 
 - JoSAA 2025 opening/closing ranks
-- IIT institute type only
+- IIT and NIT institute types, switched one at a time in the UI
 - Round 1 as the default, with rounds 1-6 available
-- NIRF Engineering 2025 ordering for IITs
+- NIRF Engineering 2025 ordering within each institute type
 
 ## Generate Data
 
 ```bash
-python3 scripts/fetch_josaa_2025_iit.py
+python3 scripts/fetch_josaa_2025_iit.py --types iit,nit
 ```
 
 The script writes:
 
 - `data/raw/josaa-2025/iit-round-*.html`
+- `data/raw/josaa-2025/nit-round-*.html`
+- `data/processed/cutoffs-2025-iit.json`
+- `data/processed/institutes-2025-iit.json`
+- `data/processed/cutoffs-2025-iit.js`
+- `data/processed/institutes-2025-iit.js`
+- `data/processed/cutoffs-2025-nit.json`
+- `data/processed/institutes-2025-nit.json`
+- `data/processed/cutoffs-2025-nit.js`
+- `data/processed/institutes-2025-nit.js`
+
+Legacy IIT aliases are also written to:
+
 - `data/processed/cutoffs-2025.json`
 - `data/processed/institutes-2025.json`
 - `data/processed/cutoffs-2025.js`
@@ -81,7 +93,7 @@ The repo already includes a [wrangler.toml](/Users/vishalkagde/Documents/Aahana_
 - If you refresh JoSAA data later, rerun:
 
 ```bash
-python3 scripts/fetch_josaa_2025_iit.py
+python3 scripts/fetch_josaa_2025_iit.py --types iit,nit
 ```
 
 Then redeploy the updated static files.

@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>JoSAA IIT Branch Finder</title>
-    <link rel="stylesheet" href="styles.css?v=20260524a" />
+    <title>JoSAA Branch Finder</title>
+    <link rel="stylesheet" href="styles.css?v=20260524c" />
   </head>
   <body>
     <main class="app-shell">
       <section class="top-band">
         <div class="title-block">
-          <p class="eyebrow">JoSAA 2025 IIT branch finder</p>
+          <p class="eyebrow">JoSAA 2025 branch finder</p>
           <h1>Find branches in striking distance</h1>
           <p class="subhead">
-            Enter a rank and see IIT programs from official JoSAA opening/closing ranks,
+            Enter a rank and see IIT or NIT programs from official JoSAA opening/closing ranks,
             ordered by NIRF Engineering ranking.
           </p>
         </div>
@@ -33,8 +33,9 @@
 
           <label>
             <span>Institute type</span>
-            <select id="instituteTypeInput" disabled>
-              <option value="IIT">Indian Institute of Technology</option>
+            <select id="instituteTypeInput">
+              <option value="iit">Indian Institute of Technology</option>
+              <option value="nit">National Institute of Technology</option>
             </select>
           </label>
 
@@ -60,7 +61,15 @@
 
           <label class="wide-field">
             <span>Branch search</span>
-            <input id="searchInput" type="search" placeholder="Computer Science, Mechanical, Design..." />
+            <input
+              id="searchInput"
+              type="text"
+              placeholder="Computer Science, Mechanical, Design..."
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
           </label>
         </form>
       </section>
@@ -121,8 +130,6 @@
       </article>
     </template>
 
-    <script src="data/processed/cutoffs-2025.js?v=20260524a"></script>
-    <script src="data/processed/institutes-2025.js?v=20260524a"></script>
-    <script src="src/app.js?v=20260524a"></script>
+    <script src="src/app.js?v=20260524c"></script>
   </body>
 </html>
