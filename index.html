@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JoSAA Branch Finder</title>
-    <link rel="stylesheet" href="styles.css?v=20260525a" />
+    <link rel="stylesheet" href="styles.css?v=20260525b" />
   </head>
   <body>
     <main class="app-shell">
@@ -28,17 +28,17 @@
           <label class="window-field">
             <span>Rank window</span>
             <input id="windowInput" type="number" min="0" step="100" value="1000" inputmode="numeric" />
-            <small class="field-note">We look this far below your rank. Very low ranks auto-shrink the window.</small>
+            <small class="field-note">We look this far below and above your rank. Very low ranks auto-shrink the window.</small>
           </label>
 
-          <label>
+          <label class="year-field">
             <span>Year</span>
             <select id="yearInput" disabled>
               <option value="2025">2025</option>
             </select>
           </label>
 
-          <label>
+          <label class="institute-field">
             <span>Institute type</span>
             <select id="instituteTypeInput">
               <option value="iit">Indian Institute of Technology</option>
