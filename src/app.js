@@ -97,11 +97,11 @@ function formatNumber(value) {
   return numberFormat.format(value);
 }
 
-function classify(row, rank) {
+function classify(row, rank, windowSize) {
   if (row.closing_rank < rank) {
     return getStatusMeta("aspirational");
   }
-  if (row.closing_rank >= rank + 3000) {
+  if (row.closing_rank > rank + windowSize) {
     return getStatusMeta("safe");
   }
   return getStatusMeta("in-range");
@@ -336,7 +336,7 @@ function filterRows(filters) {
     .filter((row) => row.closing_rank !== null)
     .filter((row) => !filters.search || row.program_name.toLowerCase().includes(filters.search))
     .filter((row) => row.closing_rank >= minimumClosingRank)
-    .filter((row) => filters.statuses.includes(classify(row, filters.rank).key));
+    .filter((row) => filters.statuses.includes(classify(row, filters.rank, filters.window).key));
 }
 
 function groupByInstitute(rows) {
@@ -460,8 +460,8 @@ async function requestRender() {
   const rows = filterRows(filters);
   const groups = groupByInstitute(rows);
   const minimumClosingRank = Math.max(1, filters.rank - filters.window);
-  const inRangeUpper = filters.rank + 2999;
-  const safeStart = filters.rank + 3000;
+  const inRangeUpper = filters.rank + filters.window;
+  const safeStart = filters.rank + filters.window + 1;
   const statusLabels = filters.statuses.map((status) => getStatusMeta(status).label);
   const nitSummary =
     state.currentType === "nit"
@@ -475,7 +475,7 @@ async function requestRender() {
   nodes.statusMeaning.innerHTML = `
     <div class="status-meaning-card"><strong>Aspirational</strong> = closing rank from ${formatNumber(minimumClosingRank)} to ${formatNumber(filters.rank - 1)}</div>
     <div class="status-meaning-card"><strong>In range</strong> = closing rank from ${formatNumber(filters.rank)} to ${formatNumber(inRangeUpper)}</div>
-    <div class="status-meaning-card"><strong>Safe by rank</strong> = closing rank ${formatNumber(safeStart)} or above</div>
+    <div class="status-meaning-card"><strong>Safe by rank</strong> = closing rank above ${formatNumber(inRangeUpper)}</div>
   `;
 
   if (!rows.length) {
@@ -503,7 +503,7 @@ async function requestRender() {
     count.textContent = `${group.programs.length} program${group.programs.length === 1 ? "" : "s"}`;
 
     for (const row of group.programs) {
-      const status = classify(row, filters.rank);
+      const status = classify(row, filters.rank, filters.window);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><div class="program-name">${row.program_name}</div></td>
