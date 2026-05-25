@@ -228,7 +228,7 @@ select:disabled {
   align-items: center;
   justify-content: flex-start;
   gap: 12px;
-  margin: -8px 0 16px;
+  margin: 0 0 16px;
 }
 
 .sort-label {
