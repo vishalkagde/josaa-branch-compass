@@ -50,8 +50,23 @@ const nodes = {
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
-const assetVersion = "20260524g";
+const assetVersion = "20260525a";
 const loadedScriptUrls = new Set();
+
+function normalizeRankWindow() {
+  const rank = Number(controls.rank.value);
+  const windowValue = Number(controls.window.value || 0);
+
+  if (!Number.isFinite(rank) || rank <= 0) {
+    controls.window.removeAttribute("max");
+    return;
+  }
+
+  controls.window.max = String(rank);
+  if (windowValue > rank) {
+    controls.window.value = String(rank);
+  }
+}
 
 function getStatusMeta(status) {
   if (status === "aspirational") {
@@ -241,9 +256,11 @@ function populateControls(previousSelections = {}) {
   );
 
   syncHomeStateControl(previousSelections);
+  normalizeRankWindow();
 }
 
 function currentFilters() {
+  normalizeRankWindow();
   return {
     instituteType: controls.instituteType.value,
     nitQuota: controls.nitQuota.value || "OS",
@@ -541,6 +558,11 @@ for (const control of [controls.rank, controls.round, controls.seatType, control
   control.addEventListener("input", requestRender);
   control.addEventListener("change", requestRender);
 }
+
+controls.rank.addEventListener("input", normalizeRankWindow);
+controls.rank.addEventListener("change", normalizeRankWindow);
+controls.window.addEventListener("input", normalizeRankWindow);
+controls.window.addEventListener("change", normalizeRankWindow);
 
 controls.instituteType.addEventListener("change", async () => {
   const previousSelections = {

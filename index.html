@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JoSAA Branch Finder</title>
-    <link rel="stylesheet" href="styles.css?v=20260524g" />
+    <link rel="stylesheet" href="styles.css?v=20260525a" />
   </head>
   <body>
     <main class="app-shell">
@@ -19,9 +19,16 @@
         </div>
 
         <form id="filters" class="filter-panel">
-          <label>
+          <label class="rank-field">
             <span>Your rank</span>
-            <input id="rankInput" type="number" min="1" step="1" value="8000" inputmode="numeric" />
+            <input id="rankInput" type="number" min="1" step="1" inputmode="numeric" placeholder="Enter your rank" />
+            <small class="field-note">Start here. The branch list updates after you enter a rank.</small>
+          </label>
+
+          <label class="window-field">
+            <span>Rank window</span>
+            <input id="windowInput" type="number" min="0" step="100" value="1000" inputmode="numeric" />
+            <small class="field-note">We look this far below your rank. Very low ranks auto-shrink the window.</small>
           </label>
 
           <label>
@@ -65,11 +72,6 @@
           <label>
             <span>Gender pool</span>
             <select id="genderInput"></select>
-          </label>
-
-          <label>
-            <span>Rank window</span>
-            <input id="windowInput" type="number" min="0" step="100" value="2000" inputmode="numeric" />
           </label>
 
           <label class="wide-field">
@@ -143,6 +145,6 @@
       </article>
     </template>
 
-    <script src="src/app.js?v=20260524g"></script>
+    <script src="src/app.js?v=20260525a"></script>
   </body>
 </html>
