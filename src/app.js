@@ -22,7 +22,6 @@ const state = {
   currentType: "iit",
   loadRequestId: 0,
   renderRequestId: 0,
-  rankWindowSyncTimer: null,
 };
 
 const controls = {
@@ -34,6 +33,7 @@ const controls = {
   round: document.querySelector("#roundInput"),
   seatType: document.querySelector("#seatTypeInput"),
   gender: document.querySelector("#genderInput"),
+  sort: document.querySelector("#sortInput"),
   window: document.querySelector("#windowInput"),
   search: document.querySelector("#searchInput"),
 };
@@ -45,13 +45,14 @@ const nodes = {
   statusCards: document.querySelector("#statusCards"),
   statusAddButton: document.querySelector("#statusAddButton"),
   statusAddMenu: document.querySelector("#statusAddMenu"),
+  sortToggle: document.querySelector("#sortToggle"),
   results: document.querySelector("#results"),
   instituteTemplate: document.querySelector("#instituteTemplate"),
 };
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
-const assetVersion = "20260525c";
+const assetVersion = "20260525f";
 const loadedScriptUrls = new Set();
 
 function normalizeRankWindow() {
@@ -70,19 +71,6 @@ function normalizeRankWindow() {
   }
 
   return false;
-}
-
-function scheduleRankWindowSync() {
-  if (state.rankWindowSyncTimer) {
-    clearTimeout(state.rankWindowSyncTimer);
-  }
-
-  state.rankWindowSyncTimer = window.setTimeout(() => {
-    state.rankWindowSyncTimer = null;
-    if (normalizeRankWindow()) {
-      requestRender();
-    }
-  }, 700);
 }
 
 function getStatusMeta(status) {
@@ -285,10 +273,20 @@ function currentFilters() {
     round: Number(controls.round.value),
     seatType: controls.seatType.value,
     gender: controls.gender.value,
+    sort: controls.sort.value || "nirf",
     window: Math.max(0, Number(controls.window.value || 0)),
     search: controls.search.value.trim().toLowerCase(),
     statuses: [...state.activeStatuses],
   };
+}
+
+function syncSortToggle() {
+  const currentSort = controls.sort.value || "nirf";
+  for (const button of nodes.sortToggle.querySelectorAll("[data-sort]")) {
+    const isActive = button.dataset.sort === currentSort;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  }
 }
 
 function renderStatusControls() {
@@ -380,6 +378,74 @@ function groupByInstitute(rows) {
     });
 }
 
+function sortAcrossColleges(rows) {
+  return [...rows].sort((left, right) => {
+    const closingDiff = left.closing_rank - right.closing_rank;
+    if (closingDiff) return closingDiff;
+
+    const instituteLeft = state.institutes.get(left.institute_id);
+    const instituteRight = state.institutes.get(right.institute_id);
+    const instituteNameDiff = (instituteLeft?.canonical_name || left.canonical_institute_name).localeCompare(
+      instituteRight?.canonical_name || right.canonical_institute_name,
+    );
+    if (instituteNameDiff) return instituteNameDiff;
+
+    return left.program_name.localeCompare(right.program_name);
+  });
+}
+
+function renderClosingRankTable(rows, filters) {
+  const sortedRows = sortAcrossColleges(rows);
+  const wrap = document.createElement("article");
+  wrap.className = "institute-block flat-results-block";
+  wrap.innerHTML = `
+    <header class="institute-header flat-results-header">
+      <div>
+        <p class="rank-label">Sorted by closing rank across colleges</p>
+        <h2>Programs across all matching colleges</h2>
+        <p class="location">Ascending closing rank, with the same aspirational, in-range, and safe logic.</p>
+      </div>
+      <span class="program-count">${sortedRows.length} program${sortedRows.length === 1 ? "" : "s"}</span>
+    </header>
+    <div class="program-table-wrap">
+      <table class="program-table flat-results-table">
+        <thead>
+          <tr>
+            <th>College</th>
+            <th>Program</th>
+            <th>Gender</th>
+            <th>Opening</th>
+            <th>Closing</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+
+  const body = wrap.querySelector("tbody");
+  for (const row of sortedRows) {
+    const institute = state.institutes.get(row.institute_id);
+    const status = classify(row, filters.rank, filters.window);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <div class="program-name">${institute?.canonical_name || row.canonical_institute_name}</div>
+        <div class="table-subtext">${rankLabel(institute || {})}</div>
+      </td>
+      <td><div class="program-name">${row.program_name}</div></td>
+      <td>${row.gender}</td>
+      <td>${formatRank(row.opening_rank_raw, row.opening_rank, row.opening_is_preparatory)}</td>
+      <td>${formatRank(row.closing_rank_raw, row.closing_rank, row.closing_is_preparatory)}</td>
+      <td><span class="pill ${status.className}">${status.label}</span></td>
+    `;
+    body.appendChild(tr);
+  }
+
+  nodes.results.replaceChildren(wrap);
+}
+
 function renderEmpty(title, message) {
   nodes.results.innerHTML = `
     <div class="empty-state">
@@ -418,6 +484,7 @@ function renderShardLoading(filters) {
 async function requestRender() {
   const requestId = ++state.renderRequestId;
   renderStatusControls();
+  syncSortToggle();
   if (!state.filters) {
     renderLoading(state.currentType);
     return;
@@ -485,9 +552,10 @@ async function requestRender() {
         ? ", OS quota"
         : `, HS quota, ${filters.homeState}`
       : "";
+  const sortSummary = filters.sort === "closing-rank" ? ", sorted by closing rank" : ", sorted by NIRF";
 
   nodes.matchCount.textContent = `${numberFormat.format(rows.length)} matching programs`;
-  nodes.summaryText.textContent = `${typeMeta.shortLabel}${nitSummary}, Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}.`;
+  nodes.summaryText.textContent = `${typeMeta.shortLabel}${nitSummary}, Round ${filters.round}, ${filters.seatType}, closing rank ${numberFormat.format(minimumClosingRank)} or above, showing ${statusLabels.join(", ")}${sortSummary}.`;
   nodes.statusMeaning.innerHTML = `
     <div class="status-meaning-card"><strong>Aspirational</strong> = closing rank from ${formatNumber(minimumClosingRank)} to ${formatNumber(filters.rank - 1)}</div>
     <div class="status-meaning-card"><strong>In range</strong> = closing rank from ${formatNumber(filters.rank)} to ${formatNumber(inRangeUpper)}</div>
@@ -499,6 +567,11 @@ async function requestRender() {
       "No matching branches",
       `Try a wider rank window, a different round, or include all gender pools for ${typeMeta.shortLabel}.`,
     );
+    return;
+  }
+
+  if (filters.sort === "closing-rank") {
+    renderClosingRankTable(rows, filters);
     return;
   }
 
@@ -570,26 +643,17 @@ async function activateInstituteType(typeKey, previousSelections = {}) {
   }
 }
 
-for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.homeState, controls.window, controls.search]) {
+for (const control of [controls.rank, controls.round, controls.seatType, controls.gender, controls.homeState, controls.sort, controls.window, controls.search]) {
   control.addEventListener("input", requestRender);
   control.addEventListener("change", requestRender);
 }
 
-controls.rank.addEventListener("input", scheduleRankWindowSync);
 controls.rank.addEventListener("change", () => {
-  if (state.rankWindowSyncTimer) {
-    clearTimeout(state.rankWindowSyncTimer);
-    state.rankWindowSyncTimer = null;
-  }
   if (normalizeRankWindow()) {
     requestRender();
   }
 });
 controls.rank.addEventListener("blur", () => {
-  if (state.rankWindowSyncTimer) {
-    clearTimeout(state.rankWindowSyncTimer);
-    state.rankWindowSyncTimer = null;
-  }
   if (normalizeRankWindow()) {
     requestRender();
   }
@@ -618,6 +682,14 @@ controls.instituteType.addEventListener("change", async () => {
 
 controls.nitQuota.addEventListener("change", () => {
   syncHomeStateControl({ nitQuota: controls.nitQuota.value, homeState: controls.homeState.value });
+  requestRender();
+});
+
+nodes.sortToggle.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-sort]");
+  if (!target) return;
+  controls.sort.value = target.dataset.sort;
+  syncSortToggle();
   requestRender();
 });
 

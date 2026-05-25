@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JoSAA Branch Finder</title>
-    <link rel="stylesheet" href="styles.css?v=20260525b" />
+    <link rel="stylesheet" href="styles.css?v=20260525e" />
   </head>
   <body>
     <main class="app-shell">
@@ -104,6 +104,15 @@
         </div>
       </section>
 
+      <section class="sort-bar" aria-label="Sort results">
+        <span class="sort-label">Sort results</span>
+        <div id="sortToggle" class="sort-toggle" role="tablist" aria-label="Sort results">
+          <button type="button" class="sort-toggle-button is-active" data-sort="nirf" aria-pressed="true">By NIRF</button>
+          <button type="button" class="sort-toggle-button" data-sort="closing-rank" aria-pressed="false">By closing rank</button>
+        </div>
+        <input id="sortInput" type="hidden" value="nirf" />
+      </section>
+
       <section id="results" class="results"></section>
 
       <footer class="source-note">
@@ -145,6 +154,6 @@
       </article>
     </template>
 
-    <script src="src/app.js?v=20260525c"></script>
+    <script src="src/app.js?v=20260525f"></script>
   </body>
 </html>
