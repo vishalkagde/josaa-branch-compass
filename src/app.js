@@ -22,6 +22,7 @@ const state = {
   currentType: "iit",
   loadRequestId: 0,
   renderRequestId: 0,
+  rankWindowSyncTimer: null,
 };
 
 const controls = {
@@ -50,7 +51,7 @@ const nodes = {
 
 const numberFormat = new Intl.NumberFormat("en-IN");
 const statusOrder = ["aspirational", "in-range", "safe"];
-const assetVersion = "20260525a";
+const assetVersion = "20260525c";
 const loadedScriptUrls = new Set();
 
 function normalizeRankWindow() {
@@ -59,13 +60,29 @@ function normalizeRankWindow() {
 
   if (!Number.isFinite(rank) || rank <= 0) {
     controls.window.removeAttribute("max");
-    return;
+    return false;
   }
 
   controls.window.max = String(rank);
   if (windowValue > rank) {
     controls.window.value = String(rank);
+    return true;
   }
+
+  return false;
+}
+
+function scheduleRankWindowSync() {
+  if (state.rankWindowSyncTimer) {
+    clearTimeout(state.rankWindowSyncTimer);
+  }
+
+  state.rankWindowSyncTimer = window.setTimeout(() => {
+    state.rankWindowSyncTimer = null;
+    if (normalizeRankWindow()) {
+      requestRender();
+    }
+  }, 700);
 }
 
 function getStatusMeta(status) {
@@ -260,7 +277,6 @@ function populateControls(previousSelections = {}) {
 }
 
 function currentFilters() {
-  normalizeRankWindow();
   return {
     instituteType: controls.instituteType.value,
     nitQuota: controls.nitQuota.value || "OS",
@@ -559,10 +575,35 @@ for (const control of [controls.rank, controls.round, controls.seatType, control
   control.addEventListener("change", requestRender);
 }
 
-controls.rank.addEventListener("input", normalizeRankWindow);
-controls.rank.addEventListener("change", normalizeRankWindow);
-controls.window.addEventListener("input", normalizeRankWindow);
-controls.window.addEventListener("change", normalizeRankWindow);
+controls.rank.addEventListener("input", scheduleRankWindowSync);
+controls.rank.addEventListener("change", () => {
+  if (state.rankWindowSyncTimer) {
+    clearTimeout(state.rankWindowSyncTimer);
+    state.rankWindowSyncTimer = null;
+  }
+  if (normalizeRankWindow()) {
+    requestRender();
+  }
+});
+controls.rank.addEventListener("blur", () => {
+  if (state.rankWindowSyncTimer) {
+    clearTimeout(state.rankWindowSyncTimer);
+    state.rankWindowSyncTimer = null;
+  }
+  if (normalizeRankWindow()) {
+    requestRender();
+  }
+});
+controls.window.addEventListener("change", () => {
+  if (normalizeRankWindow()) {
+    requestRender();
+  }
+});
+controls.window.addEventListener("blur", () => {
+  if (normalizeRankWindow()) {
+    requestRender();
+  }
+});
 
 controls.instituteType.addEventListener("change", async () => {
   const previousSelections = {
